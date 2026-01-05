@@ -21,7 +21,7 @@ class NeteaseMusicBackup:
         self.cookie_str = self.config.get('netease', 'cookie', fallback='')
         # 读取是否下载封面（处理可能的值）
         download_cover_str = self.config.get('backup', 'download_cover', fallback='true')
-        self.download_cover = download_cover_str.lower() in ('true', 'yes', '1', 'on')
+        self.enable_download_cover = download_cover_str.lower() in ('true', 'yes', '1', 'on')
         self.save_path = self.config.get('backup', 'save_path', fallback='./playlists')
 
         # 读取指定的歌单ID列表
@@ -121,7 +121,7 @@ class NeteaseMusicBackup:
     
     def download_cover(self, cover_url, save_dir):
         """下载封面图片"""
-        if not self.download_cover or not cover_url:
+        if not self.enable_download_cover or not cover_url:
             return None
         
         try:
@@ -169,6 +169,7 @@ class NeteaseMusicBackup:
         os.makedirs(playlist_dir, exist_ok=True)
         
         # 下载封面
+        print(f'[DEBUG] 备份歌单模式: 准备下载封面...')
         cover_filename = self.download_cover(playlist_cover, playlist_dir)
         
         # 提取歌曲信息
@@ -230,35 +231,53 @@ class NeteaseMusicBackup:
     
     def backup_playlist_by_id(self, playlist_id):
         """通过歌单ID备份单个歌单"""
-        print(f'\n正在通过ID备份歌单: {playlist_id}')
+        print(f'\n[DEBUG] 开始通过ID备份歌单: {playlist_id}')
+        print(f'[DEBUG] 类型检查: playlist_id = {playlist_id}, type = {type(playlist_id)}')
 
         # 获取歌单详情
+        print(f'[DEBUG] 调用 get_playlist_detail...')
         detail = self.get_playlist_detail(playlist_id)
         if not detail:
-            print(f'获取歌单详情失败')
+            print(f'[DEBUG] 获取歌单详情失败，返回 None')
             return None
+
+        print(f'[DEBUG] 成功获取歌单详情')
+        print(f'[DEBUG] detail 类型: {type(detail)}')
+        print(f'[DEBUG] detail keys: {detail.keys() if isinstance(detail, dict) else "N/A"}')
 
         playlist_id = detail['id']
         playlist_name = detail['name']
         playlist_description = detail.get('description', '')
         playlist_cover = detail.get('coverImgUrl', '')
 
-        print(f'歌单名称: {playlist_name}')
-        print(f'歌单ID: {playlist_id}')
+        print(f'[DEBUG] 歌单名称: {playlist_name}')
+        print(f'[DEBUG] 歌单ID: {playlist_id}')
+        print(f'[DEBUG] 歌单封面: {playlist_cover}')
 
         # 创建保存目录
+        print(f'[DEBUG] 准备创建保存目录...')
         safe_name = ''.join(c for c in playlist_name if c.isalnum() or c in (' ', '-', '_')).strip()
+        print(f'[DEBUG] safe_name: {safe_name}')
         playlist_dir = os.path.join(self.save_path, safe_name)
+        print(f'[DEBUG] playlist_dir: {playlist_dir}')
         os.makedirs(playlist_dir, exist_ok=True)
+        print(f'[DEBUG] 目录创建成功')
 
         # 下载封面
+        print(f'[DEBUG] 准备下载封面...')
+        print(f'[DEBUG] self.enable_download_cover 类型: {type(self.enable_download_cover)}, 值: {self.enable_download_cover}')
         cover_filename = self.download_cover(playlist_cover, playlist_dir)
+        print(f'[DEBUG] 封面下载结果: {cover_filename}')
 
         # 提取歌曲信息
         tracks = detail.get('tracks', [])
+        print(f'[DEBUG] 歌曲数量: {len(tracks)}')
         songs = []
 
         for idx, track in enumerate(tracks, 1):
+            print(f'[DEBUG] 处理第 {idx} 首歌曲')
+            print(f'[DEBUG] track keys: {track.keys() if isinstance(track, dict) else "N/A"}')
+
             song_info = {
                 'id': track['id'],
                 'name': track['name'],
@@ -271,6 +290,7 @@ class NeteaseMusicBackup:
             print(f'  {idx}. {song_info["name"]} - {song_info["artist"]}')
 
         # 构建备份数据
+        print(f'[DEBUG] 构建备份数据...')
         backup_data = {
             'playlist_id': playlist_id,
             'name': playlist_name,
@@ -285,11 +305,14 @@ class NeteaseMusicBackup:
         }
 
         # 保存为JSON文件
+        print(f'[DEBUG] 保存JSON文件...')
         json_file = os.path.join(playlist_dir, 'playlist.json')
         with open(json_file, 'w', encoding='utf-8') as f:
             json.dump(backup_data, f, ensure_ascii=False, indent=2)
+        print(f'[DEBUG] JSON文件保存成功')
 
         # 同时保存为易读的文本文件
+        print(f'[DEBUG] 保存TXT文件...')
         txt_file = os.path.join(playlist_dir, 'playlist.txt')
         with open(txt_file, 'w', encoding='utf-8') as f:
             f.write(f"歌单名称: {playlist_name}\n")
@@ -307,6 +330,7 @@ class NeteaseMusicBackup:
                 f.write(f"{song['order']}. {song['name']} - {song['artist']}\n")
                 f.write(f"   专辑: {song['album']}\n")
                 f.write(f"   URL: {song['url']}\n\n")
+        print(f'[DEBUG] TXT文件保存成功')
 
         print(f'备份完成！已保存到: {playlist_dir}')
         return backup_data

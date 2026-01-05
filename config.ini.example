@@ -1,0 +1,20 @@
+[netease]
+# Cookie字符串 (从浏览器复制)
+# 获取方法：
+# 1. 浏览器登录网易云音乐
+# 2. 按F12打开开发者工具
+# 3. 切换到 Network 标签
+# 4. 刷新页面，点击任意请求
+# 5. 在 Request Headers 中找到 Cookie，复制完整内容
+cookie = ''
+
+# 指定要备份的歌单ID列表（可选）
+# 留空或注释掉则备份所有歌单
+# 多个ID用逗号分隔，例如：123456,234567,345678
+playlist_ids = 
+
+[backup]
+# 是否下载封面图片
+download_cover = false
+# 备份文件保存路径
+save_path = ./playlists
