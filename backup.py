@@ -19,8 +19,17 @@ class NeteaseMusicBackup:
 
         # 从配置读取Cookie
         self.cookie_str = self.config.get('netease', 'cookie', fallback='')
-        self.download_cover = self.config.getboolean('backup', 'download_cover', fallback=True)
+        # 读取是否下载封面（处理可能的值）
+        download_cover_str = self.config.get('backup', 'download_cover', fallback='true')
+        self.download_cover = download_cover_str.lower() in ('true', 'yes', '1', 'on')
         self.save_path = self.config.get('backup', 'save_path', fallback='./playlists')
+
+        # 读取指定的歌单ID列表
+        playlist_ids_str = self.config.get('netease', 'playlist_ids', fallback='')
+        if playlist_ids_str.strip():
+            self.playlist_ids = [pid.strip() for pid in playlist_ids_str.split(',') if pid.strip()]
+        else:
+            self.playlist_ids = []
 
         self.session = requests.Session()
         self.user_id = None
@@ -219,8 +228,91 @@ class NeteaseMusicBackup:
         print(f'备份完成！已保存到: {playlist_dir}')
         return backup_data
     
+    def backup_playlist_by_id(self, playlist_id):
+        """通过歌单ID备份单个歌单"""
+        print(f'\n正在通过ID备份歌单: {playlist_id}')
+
+        # 获取歌单详情
+        detail = self.get_playlist_detail(playlist_id)
+        if not detail:
+            print(f'获取歌单详情失败')
+            return None
+
+        playlist_id = detail['id']
+        playlist_name = detail['name']
+        playlist_description = detail.get('description', '')
+        playlist_cover = detail.get('coverImgUrl', '')
+
+        print(f'歌单名称: {playlist_name}')
+        print(f'歌单ID: {playlist_id}')
+
+        # 创建保存目录
+        safe_name = ''.join(c for c in playlist_name if c.isalnum() or c in (' ', '-', '_')).strip()
+        playlist_dir = os.path.join(self.save_path, safe_name)
+        os.makedirs(playlist_dir, exist_ok=True)
+
+        # 下载封面
+        cover_filename = self.download_cover(playlist_cover, playlist_dir)
+
+        # 提取歌曲信息
+        tracks = detail.get('tracks', [])
+        songs = []
+
+        for idx, track in enumerate(tracks, 1):
+            song_info = {
+                'id': track['id'],
+                'name': track['name'],
+                'artist': ', '.join([ar['name'] for ar in track['ar']]),
+                'album': track['al']['name'],
+                'url': f"https://music.163.com/#/song?id={track['id']}",
+                'order': idx
+            }
+            songs.append(song_info)
+            print(f'  {idx}. {song_info["name"]} - {song_info["artist"]}')
+
+        # 构建备份数据
+        backup_data = {
+            'playlist_id': playlist_id,
+            'name': playlist_name,
+            'description': playlist_description,
+            'cover_url': playlist_cover,
+            'cover_file': cover_filename,
+            'song_count': len(songs),
+            'created_time': detail.get('createTime', ''),
+            'updated_time': detail.get('updateTime', ''),
+            'privacy': detail.get('privacy', 0),
+            'songs': songs
+        }
+
+        # 保存为JSON文件
+        json_file = os.path.join(playlist_dir, 'playlist.json')
+        with open(json_file, 'w', encoding='utf-8') as f:
+            json.dump(backup_data, f, ensure_ascii=False, indent=2)
+
+        # 同时保存为易读的文本文件
+        txt_file = os.path.join(playlist_dir, 'playlist.txt')
+        with open(txt_file, 'w', encoding='utf-8') as f:
+            f.write(f"歌单名称: {playlist_name}\n")
+            f.write(f"歌单ID: {playlist_id}\n")
+            f.write(f"简介: {playlist_description}\n")
+            f.write(f"歌曲数量: {len(songs)}\n")
+            f.write(f"创建时间: {detail.get('createTime', '')}\n")
+            f.write(f"更新时间: {detail.get('updateTime', '')}\n")
+            f.write(f"隐私设置: {'私密' if detail.get('privacy') == 10 else '公开'}\n")
+            f.write(f"封面: {cover_filename if cover_filename else '未下载'}\n")
+            f.write("\n" + "="*50 + "\n")
+            f.write("歌曲列表:\n\n")
+
+            for song in songs:
+                f.write(f"{song['order']}. {song['name']} - {song['artist']}\n")
+                f.write(f"   专辑: {song['album']}\n")
+                f.write(f"   URL: {song['url']}\n\n")
+
+        print(f'备份完成！已保存到: {playlist_dir}')
+        return backup_data
+
     def backup_all(self):
-        """备份所有歌单"""
+        """备份所有歌单或指定的歌单"""
         # 检查Cookie
         if not self.cookie_str:
             print('错误：请在config.ini中配置cookie')
@@ -238,23 +330,35 @@ class NeteaseMusicBackup:
         # 创建保存目录
         os.makedirs(self.save_path, exist_ok=True)
 
-        # 获取所有歌单
-        playlists = self.get_user_playlists()
-        if not playlists:
-            print('未找到任何歌单')
-            return
+        # 检查是否指定了歌单ID列表
+        if self.playlist_ids:
+            print(f'配置文件中指定了 {len(self.playlist_ids)} 个歌单ID')
+            backup_results = []
+            for playlist_id in self.playlist_ids:
+                try:
+                    result = self.backup_playlist_by_id(playlist_id)
+                    if result:
+                        backup_results.append(result)
+                except Exception as e:
+                    print(f'备份歌单 {playlist_id} 时出错: {str(e)}')
+                    continue
+        else:
+            # 备份所有歌单
+            playlists = self.get_user_playlists()
+            if not playlists:
+                print('未找到任何歌单')
+                return
 
-        # 分备份
-        backup_results = []
-
-        for playlist in playlists:
-            try:
-                result = self.backup_playlist(playlist)
-                if result:
-                    backup_results.append(result)
-            except Exception as e:
-                print(f'备份歌单时出错: {str(e)}')
-                continue
+            # 逐个备份
+            backup_results = []
+            for playlist in playlists:
+                try:
+                    result = self.backup_playlist(playlist)
+                    if result:
+                        backup_results.append(result)
+                except Exception as e:
+                    print(f'备份歌单时出错: {str(e)}')
+                    continue
 
         # 生成汇总报告
         summary_file = os.path.join(self.save_path, 'backup_summary.json')
@@ -283,17 +387,38 @@ class NeteaseMusicBackup:
 
 def main():
     """主函数"""
+    import sys
+
     # 检查配置文件
     if not os.path.exists('config.ini'):
         print('错误: 未找到配置文件 config.ini')
-        print('请先配置 config.ini 文件，填入你的网易云音乐账号信息')
+        print('请先配置 config.ini 文件，填入你的网易云音乐 Cookie')
         return
-    
+
     # 创建备份实例
     backup = NeteaseMusicBackup('config.ini')
-    
-    # 开始备份
-    backup.backup_all()
+
+    # 检查是否有命令行参数（歌单ID）
+    if len(sys.argv) > 1:
+        playlist_id = sys.argv[1]
+        print(f'按指定歌单ID备份: {playlist_id}')
+
+        if not backup.cookie_str:
+            print('错误：请在config.ini中配置cookie')
+            return
+
+        # 创建保存目录
+        os.makedirs(backup.save_path, exist_ok=True)
+
+        # 备份指定歌单
+        try:
+            backup.backup_playlist_by_id(playlist_id)
+            print(f'\n备份完成！')
+        except Exception as e:
+            print(f'备份失败: {str(e)}')
+    else:
+        # 备份所有歌单
+        backup.backup_all()
 
 
 if __name__ == '__main__':
